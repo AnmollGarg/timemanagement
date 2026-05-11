@@ -2,3 +2,4 @@ __pycache__
 build
 *.pot
 .agent
+voice_to_text/lib/

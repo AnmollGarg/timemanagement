@@ -6,7 +6,7 @@ import ".."
 Rectangle {
     id: topFilterBar
     width: parent ? parent.width : Screen.width
-    height: showSearchBox ? units.gu(11) : units.gu(6) // Restored height to give proper space
+    height: (showSearchBox ? units.gu(5) : 0) + (filterModel.length > 0 ? units.gu(6) : 0)
     color: "transparent"
 
     // Helper property to check if dark mode is active
@@ -207,6 +207,7 @@ Rectangle {
 
         // Filter buttons row below search
         Item {
+            visible: topFilterBar.filterModel.length > 0
             width: parent.width
             height: units.gu(6) // Adjusted back
 

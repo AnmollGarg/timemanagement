@@ -30,9 +30,10 @@ import Lomiri.Components.Popups 1.3
 import QtGraphicalEffects 1.0
 import "../components"
 import "../../../components"
+import "../../../components/navigation" as Nav
 Page {
     id: voiceModelSettingsPage
-    title: i18n.dtr("ubtms", "Voice Model Settings")
+    title: i18n.dtr("ubtms", "Voice Model (Beta)")
 
     header: SettingsHeader {
         id: pageHeader
@@ -41,6 +42,12 @@ Page {
             Action {
                 iconName: "info"
                 onTriggered: PopupUtils.open(infoDialogComponent, voiceModelSettingsPage)
+            },
+            Action {
+                iconName: "search"
+                onTriggered: {
+                    myTaskListHeader.toggleSearchVisibility()
+                }
             },
             Action {
                 iconName: "reload"
@@ -59,6 +66,21 @@ Page {
     property var downloadStatus: { "in_progress": false, "progress": 0, "message": "", "error": "" }
     property int deviceRamMB: 2048
     property bool isVoiceInputEnabled: true
+    property string searchQuery: ""
+    property var allInstalledModels: []
+    property var allAvailableModels: []
+
+    Timer {
+        id: searchDebounceTimer
+        interval: 300
+        onTriggered: {
+            filterModels();
+        }
+    }
+
+    onSearchQueryChanged: {
+        searchDebounceTimer.restart();
+    }
 
     function getVoiceInputEnabledSetting() {
         try {
@@ -138,58 +160,83 @@ Page {
         if (!mainView.backend_bridge.ready) return;
         
         isLoading = true;
-        modelList.clear();
         
         mainView.backend_bridge.call("backend.list_installed_models", [], function(models) {
             isLoading = false;
-            if (models && models.length > 0) {
+            var arr = [];
+            if (models) {
                 for (var i = 0; i < models.length; i++) {
-                    modelList.append({
-                        "name": models[i].m_name,
-                        "path": models[i].m_path,
-                        "m_source": models[i].m_source,
-                        "size": models[i].m_size || ""
-                    });
+                    arr.push(models[i]);
                 }
             }
+            allInstalledModels = arr;
+            filterModels();
             // After refreshing installed models, refresh available ones
             refreshAvailableModels();
         });
     }
 
+    function filterModels() {
+        modelList.clear();
+        availableModelList.clear();
+        
+        var query = searchQuery.toLowerCase();
+        
+        // Installed models
+        for (var i = 0; i < allInstalledModels.length; i++) {
+            var m = allInstalledModels[i];
+            if (query === "" || (m.m_name && m.m_name.toLowerCase().indexOf(query) !== -1) || (m.m_path && m.m_path.toLowerCase().indexOf(query) !== -1)) {
+                modelList.append({
+                    "name": m.m_name,
+                    "path": m.m_path,
+                    "m_source": m.m_source,
+                    "size": m.m_size || ""
+                });
+            }
+        }
+        
+        // Available models
+        var installedPaths = [];
+        for (var idx = 0; idx < allInstalledModels.length; idx++) {
+            installedPaths.push(allInstalledModels[idx].m_path);
+        }
+
+        for (var j = 0; j < allAvailableModels.length; j++) {
+            var modelId = allAvailableModels[j].id;
+            var alreadyInstalled = false;
+            for (var k = 0; k < installedPaths.length; k++) {
+                if (installedPaths[k].indexOf(modelId) !== -1) {
+                    alreadyInstalled = true;
+                    break;
+                }
+            }
+
+            if (!alreadyInstalled) {
+                var avM = allAvailableModels[j];
+                if (query === "" || (avM.name && avM.name.toLowerCase().indexOf(query) !== -1) || (avM.id && avM.id.toLowerCase().indexOf(query) !== -1)) {
+                    availableModelList.append({
+                        "id": avM.id,
+                        "name": avM.name,
+                        "size": avM.size,
+                        "url": avM.url
+                    });
+                }
+            }
+        }
+    }
+
     function refreshAvailableModels() {
         if (!mainView.backend_bridge.ready) return;
         
-        availableModelList.clear();
         mainView.backend_bridge.call("backend.list_available_models", [], function(models) {
-            if (models && models.length > 0) {
-                // Only show models that are NOT installed
-                var installedPaths = [];
-                for (var i = 0; i < modelList.count; i++) {
-                    installedPaths.push(modelList.get(i).path);
-                }
-
-                for (var j = 0; j < models.length; j++) {
-                    var modelId = models[j].id;
-                    // Check if already installed (simple check by ID in path or similar)
-                    var alreadyInstalled = false;
-                    for (var k = 0; k < installedPaths.length; k++) {
-                        if (installedPaths[k].indexOf(modelId) !== -1) {
-                            alreadyInstalled = true;
-                            break;
-                        }
-                    }
-
-                    if (!alreadyInstalled) {
-                        availableModelList.append({
-                            "id": models[j].id,
-                            "name": models[j].name,
-                            "size": models[j].size,
-                            "url": models[j].url
-                        });
-                    }
+            var arr = [];
+            if (models) {
+                for (var i = 0; i < models.length; i++) {
+                    arr.push(models[i]);
                 }
             }
+            allAvailableModels = arr;
+            filterModels();
         });
     }
 
@@ -475,9 +522,24 @@ Page {
         }
     }
 
+    Nav.ListHeader {
+        id: myTaskListHeader
+        anchors.top: pageHeader.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        
+        filterModel: []
+        showSearchBox: false
+        currentFilter: ""
+
+        onCustomSearch: {
+            searchQuery = query;
+        }
+    }
+
     Flickable {
         id: flickable
-        anchors.top: pageHeader.bottom
+        anchors.top: myTaskListHeader.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

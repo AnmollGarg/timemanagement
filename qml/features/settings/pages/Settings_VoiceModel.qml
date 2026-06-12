@@ -39,6 +39,10 @@ Page {
         title: voiceModelSettingsPage.title
         trailingActions: [
             Action {
+                iconName: "info"
+                onTriggered: PopupUtils.open(infoDialogComponent, voiceModelSettingsPage)
+            },
+            Action {
                 iconName: "reload"
                 onTriggered: refreshModels()
                 enabled: !isDownloading
@@ -51,7 +55,52 @@ Page {
     property bool isDownloading: false
     property string downloadingModelId: ""
     property string downloadingModelName: ""
+    property string failedModelId: ""
     property var downloadStatus: { "in_progress": false, "progress": 0, "message": "", "error": "" }
+    property int deviceRamMB: 2048
+    property bool isVoiceInputEnabled: true
+
+    function getVoiceInputEnabledSetting() {
+        try {
+            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var result = true;
+            db.transaction(function (tx) {
+                var rs = tx.executeSql('SELECT value FROM app_settings WHERE key = "voice_input_enabled"');
+                if (rs.rows.length > 0) {
+                    result = rs.rows.item(0).value === "true";
+                }
+            });
+            return result;
+        } catch (e) {
+            console.warn("Error reading voice_input_enabled setting:", e);
+            return true;
+        }
+    }
+
+    function saveVoiceInputEnabledSetting(value) {
+        try {
+            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            db.transaction(function (tx) {
+                tx.executeSql('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
+                tx.executeSql('INSERT OR REPLACE INTO app_settings (key, value) VALUES ("voice_input_enabled", ?)', [value ? "true" : "false"]);
+            });
+            isVoiceInputEnabled = value;
+        } catch (e) {
+            console.warn("Error saving voice_input_enabled setting:", e);
+        }
+    }
+
+    function isModelCompatible(sizeStr) {
+        if (!sizeStr) return true;
+        var isG = sizeStr.indexOf("G") !== -1;
+        if (isG) {
+            var val = parseFloat(sizeStr.replace("G", ""));
+            // Assume 1G requires ~2500MB RAM, 1.8G requires ~4000MB RAM.
+            var reqRam = val * 2500; 
+            return deviceRamMB >= reqRam;
+        }
+        return true; // MB sizes are usually compatible with any device
+    }
 
     function getActiveModelSetting() {
         try {
@@ -172,12 +221,54 @@ Page {
         });
     }
 
+    function cancelDownload() {
+        if (!mainView.backend_bridge.ready) return;
+        mainView.backend_bridge.call("backend.cancel_voice_model_download", [], function(res) {
+            isDownloading = false;
+            failedModelId = "";
+            downloadStatusTimer.stop();
+            if (mainView.modelDownloadTimerWidget) {
+                mainView.modelDownloadTimerWidget.failSync(i18n.dtr("ubtms", "Download cancelled"));
+            }
+            notifPopup.open(i18n.dtr("ubtms", "Download Cancelled"), i18n.dtr("ubtms", "Download of %1 was cancelled and partial data deleted.").arg(downloadingModelName), "info");
+            refreshModels();
+        });
+    }
+
+    function pauseDownload() {
+        if (!mainView.backend_bridge.ready) return;
+        mainView.backend_bridge.call("backend.pause_voice_model_download", [], function(res) {
+            // Timer will catch the state change and handle UI updates
+        });
+    }
+
     Component.onCompleted: {
         activeModelPath = getActiveModelSetting();
+        isVoiceInputEnabled = getVoiceInputEnabledSetting();
         if (mainView.backend_bridge.ready) {
             refreshModels();
             checkInProgressDownload();
+            checkPausedDownloads();
+            fetchDeviceRam();
         }
+    }
+
+    function fetchDeviceRam() {
+        mainView.backend_bridge.call("backend.get_device_total_ram_mb", [], function(ram) {
+            if (ram) {
+                deviceRamMB = ram;
+                console.log("Device RAM detected:", deviceRamMB, "MB");
+            }
+        });
+    }
+
+    function checkPausedDownloads() {
+        mainView.backend_bridge.call("backend.get_paused_voice_models", [], function(paused) {
+            if (paused && paused.length > 0) {
+                // If there are partial downloads, mark the first one as paused (failedModelId handles UI for paused state)
+                failedModelId = paused[0];
+            }
+        });
     }
 
     function checkInProgressDownload() {
@@ -198,6 +289,32 @@ Page {
             "modelPath": path,
             "modelName": name
         });
+    }
+
+    Component {
+        id: infoDialogComponent
+        Dialog {
+            id: infoDialog
+            title: i18n.dtr("ubtms", "About Voice Models")
+            
+            Column {
+                spacing: units.gu(2)
+                width: parent.width
+                
+                Text {
+                    text: i18n.dtr("ubtms", "Voice models allow you to dictate text using your microphone directly into the app. Because processing happens locally on your device, your voice data remains completely private and no internet connection is required after the initial model download.\n\nLarger models provide higher accuracy but require more device memory and space. Smaller models are faster and use fewer resources but may be less accurate.")
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    color: theme.palette.normal.backgroundText
+                }
+                
+                Button {
+                    text: i18n.dtr("ubtms", "Close")
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: PopupUtils.close(infoDialog)
+                }
+            }
+        }
     }
 
     Component {
@@ -249,12 +366,57 @@ Page {
         }
     }
 
+    Component {
+        id: warningComponent
+        Dialog {
+            id: warningDialog
+            property string modelId
+            property string modelUrl
+            property string modelName
+            title: i18n.dtr("ubtms", "Warning")
+            
+            Column {
+                spacing: units.gu(2)
+                width: parent.width
+                
+                Text {
+                    text: i18n.dtr("ubtms", "This model is incompatible with your device because it requires more RAM than available. It may cause the app to crash.\n\nBut if you want to download it, you can.")
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    color: theme.palette.normal.backgroundText
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                
+                Row {
+                    spacing: units.gu(2)
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    
+                    Button {
+                        text: i18n.dtr("ubtms", "Cancel")
+                        onClicked: PopupUtils.close(warningDialog)
+                    }
+                    
+                    Button {
+                        text: i18n.dtr("ubtms", "Download Anyway")
+                        color: LomiriColors.orange
+                        onClicked: {
+                            PopupUtils.close(warningDialog);
+                            downloadModel(warningDialog.modelId, warningDialog.modelUrl, warningDialog.modelName);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Connections {
         target: mainView.backend_bridge
         onReadyChanged: {
             if (mainView.backend_bridge.ready) {
                 refreshModels();
                 checkInProgressDownload();
+                checkPausedDownloads();
+                fetchDeviceRam();
             }
         }
     }
@@ -285,14 +447,24 @@ Page {
                     downloadStatusTimer.stop();
                     isDownloading = false;
                     refreshModels(); // Refresh both lists
-                    if (status.error) {
-                        // Show error
-                        console.error("Download error:", status.error);
-                        if (mainView.modelDownloadTimerWidget) {
-                            mainView.modelDownloadTimerWidget.failSync(status.error);
+                    
+                    if (status.is_paused) {
+                        failedModelId = downloadingModelId;
+                        if (status.error) {
+                            console.error("Download error:", status.error);
+                            if (mainView.modelDownloadTimerWidget) mainView.modelDownloadTimerWidget.failSync(status.error);
+                            notifPopup.open(i18n.dtr("ubtms", "Download Interrupted"), i18n.dtr("ubtms", "Failed to download %1: %2. You can resume it.").arg(downloadingModelName).arg(status.error), "warning");
+                        } else {
+                            notifPopup.open(i18n.dtr("ubtms", "Download Paused"), i18n.dtr("ubtms", "Download of %1 is paused.").arg(downloadingModelName), "info");
                         }
-                        notifPopup.open(i18n.dtr("ubtms", "Download Failed"), i18n.dtr("ubtms", "Failed to download %1: %2").arg(downloadingModelName).arg(status.error), "error");
+                    } else if (status.message === "Cancelled" || status.message === "Download cancelled") {
+                        failedModelId = "";
+                        // Already handled by cancelDownload() or just silently reset
+                    } else if (status.error) {
+                        failedModelId = ""; // fallback
+                        notifPopup.open(i18n.dtr("ubtms", "Download Failed"), status.error, "error");
                     } else {
+                        failedModelId = "";
                         if (mainView.modelDownloadTimerWidget) {
                             mainView.modelDownloadTimerWidget.completeSyncSuccessfully();
                         }
@@ -315,7 +487,33 @@ Page {
         Column {
             id: contentColumn
             width: parent.width
-            // spacing: units.gu(1)
+
+            ListItem {
+                width: parent.width
+                height: units.gu(7)
+                divider.visible: true
+
+                Label {
+                    anchors.left: parent.left
+                    anchors.leftMargin: units.gu(2)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: i18n.dtr("ubtms", "Enable Voice Input")
+                    font.pixelSize: units.gu(2)
+                    color: theme.name === "Ubuntu.Components.Themes.SuruDark" ? "#f5f5f5" : "#111"
+                }
+
+                Switch {
+                    anchors.right: parent.right
+                    anchors.rightMargin: units.gu(2)
+                    anchors.verticalCenter: parent.verticalCenter
+                    checked: isVoiceInputEnabled
+                    onCheckedChanged: {
+                        if (checked !== isVoiceInputEnabled) {
+                            saveVoiceInputEnabledSetting(checked);
+                        }
+                    }
+                }
+            }
 
             ListItem {
                 width: parent.width
@@ -358,9 +556,19 @@ Page {
                     Rectangle {
                         anchors.fill: parent
                         color: activeModelPath === model.path ? 
-                               (theme.name === "Ubuntu.Components.Themes.SuruDark" ? "#222" : "#f0f0f0") : 
+                               (theme.name === "Ubuntu.Components.Themes.SuruDark" ? "#2b241b" : "#fff1de") : 
                                "transparent"
                         visible: activeModelPath === model.path
+                        
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: units.dp(3)
+                            height: parent.height - units.gu(1.6)
+                            radius: units.dp(2)
+                            color: LomiriColors.orange
+                            visible: activeModelPath === model.path
+                        }
                     }
 
                     Column {
@@ -377,7 +585,7 @@ Page {
                             text: model.name
                             font.pixelSize: units.gu(2)
                             font.bold: activeModelPath === model.path
-                            color: theme.name === "Ubuntu.Components.Themes.SuruDark" ? "#f5f5f5" : "#111"
+                            color: activeModelPath === model.path ? LomiriColors.orange : (theme.name === "Ubuntu.Components.Themes.SuruDark" ? "#f5f5f5" : "#111")
                             elide: Text.ElideRight
                             width: parent.width
                         }
@@ -444,7 +652,20 @@ Page {
                     opacity: isDownloading ? (downloadingModelId === model.id ? 1.0 : 0.5) : 1.0
 
                     onClicked: {
-                        if (!isDownloading) {
+                        if (isDownloading && downloadingModelId === model.id) {
+                            pauseDownload();
+                        } else if (!isDownloading) {
+                            if (!isModelCompatible(model.size)) {
+                                PopupUtils.open(warningComponent, voiceModelSettingsPage, {
+                                    "modelId": model.id,
+                                    "modelUrl": model.url,
+                                    "modelName": model.name
+                                });
+                                return;
+                            }
+                            if (failedModelId === model.id) {
+                                failedModelId = "";
+                            }
                             downloadModel(model.id, model.url, model.name);
                         }
                     }
@@ -480,33 +701,111 @@ Page {
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.rightMargin: units.gu(2)
-                        width: units.gu(2.5)
+                        width: units.gu(9)
                         height: units.gu(2.5)
-                        visible: !isDownloading || downloadingModelId !== model.id
 
-                        Image {
-                            id: downloadImg
+                        Row {
                             anchors.fill: parent
-                            source: Qt.resolvedUrl("../../../images/download.svg")
-                            sourceSize: Qt.size(parent.width, parent.height)
-                            visible: false
-                        }
+                            spacing: units.gu(1)
+                            layoutDirection: Qt.RightToLeft
 
-                        ColorOverlay {
-                            anchors.fill: downloadImg
-                            source: downloadImg
-                            color: LomiriColors.orange
-                        }
-                    }
+                            // Warning icon
+                            Icon {
+                                name: "dialog-warning"
+                                width: units.gu(2.5)
+                                height: units.gu(2.5)
+                                color: LomiriColors.red
+                                visible: !isModelCompatible(model.size) && (!isDownloading || downloadingModelId !== model.id) && failedModelId !== model.id
+                                
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        PopupUtils.open(warningComponent, voiceModelSettingsPage, {
+                                            "modelId": model.id,
+                                            "modelUrl": model.url,
+                                            "modelName": model.name
+                                        });
+                                    }
+                                }
+                            }
 
-                    BusyIndicator {
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.rightMargin: units.gu(2)
-                        running: isDownloading && downloadingModelId === model.id
-                        visible: isDownloading && downloadingModelId === model.id
-                        width: units.gu(2.5)
-                        height: units.gu(2.5)
+                            // Default Download icon
+                            Item {
+                                width: units.gu(2.5)
+                                height: units.gu(2.5)
+                                visible: isModelCompatible(model.size) && (!isDownloading || downloadingModelId !== model.id) && failedModelId !== model.id
+
+                                Image {
+                                    id: downloadImg
+                                    anchors.fill: parent
+                                    source: Qt.resolvedUrl("../../../images/download.svg")
+                                    sourceSize: Qt.size(parent.width, parent.height)
+                                    visible: false
+                                }
+
+                                ColorOverlay {
+                                    anchors.fill: downloadImg
+                                    source: downloadImg
+                                    color: LomiriColors.orange
+                                }
+                            }
+
+                            // Cancel icon (when paused or downloading)
+                            Icon {
+                                name: "close"
+                                width: units.gu(2.5)
+                                height: units.gu(2.5)
+                                color: LomiriColors.red
+                                visible: ((!isDownloading || downloadingModelId !== model.id) && failedModelId === model.id) || (isDownloading && downloadingModelId === model.id)
+                                
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        cancelDownload();
+                                    }
+                                }
+                            }
+
+                            // Play/Resume icon (when paused)
+                            Icon {
+                                name: "media-playback-start"
+                                width: units.gu(2.5)
+                                height: units.gu(2.5)
+                                color: LomiriColors.green
+                                visible: (!isDownloading || downloadingModelId !== model.id) && failedModelId === model.id
+                                
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        failedModelId = "";
+                                        downloadModel(model.id, model.url, model.name);
+                                    }
+                                }
+                            }
+
+                            // Pause icon (when downloading)
+                            Icon {
+                                name: "media-playback-pause"
+                                width: units.gu(2.5)
+                                height: units.gu(2.5)
+                                color: LomiriColors.orange
+                                visible: isDownloading && downloadingModelId === model.id
+                                
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        pauseDownload();
+                                    }
+                                }
+                            }
+
+                            BusyIndicator {
+                                width: units.gu(2.5)
+                                height: units.gu(2.5)
+                                running: isDownloading && downloadingModelId === model.id
+                                visible: isDownloading && downloadingModelId === model.id
+                            }
+                        }
                     }
                 }
             }

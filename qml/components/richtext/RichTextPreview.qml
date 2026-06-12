@@ -1,5 +1,6 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
+import QtQuick.LocalStorage 2.7 as Sql
 import "js/html-sanitizer.js" as HtmlSanitizer
 import "../../../models/global.js" as Global
 
@@ -23,6 +24,27 @@ Rectangle {
     property bool listening: false
     property bool processing: false
     property string textBeforeRecording: ""
+    property bool isVoiceInputEnabled: true
+
+    function checkVoiceInputEnabled() {
+        try {
+            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var result = true;
+            db.transaction(function (tx) {
+                var rs = tx.executeSql('SELECT value FROM app_settings WHERE key = "voice_input_enabled"');
+                if (rs.rows.length > 0) {
+                    result = rs.rows.item(0).value === "true";
+                }
+            });
+            isVoiceInputEnabled = result;
+        } catch (e) {
+            console.warn("Error reading voice_input_enabled:", e);
+        }
+    }
+
+    Component.onCompleted: {
+        checkVoiceInputEnabled()
+    }
     property int _liveStartPos: 0
     property int _liveLength: 0
 
@@ -41,6 +63,15 @@ Rectangle {
                     previewText.insert(root._liveStartPos, str);
                     root._liveLength = str.length;
                     
+                    cursorTimer.start();
+                }
+            } else if (data.event === "voice_recognition_status") {
+                var statusText = data.payload;
+                if (statusText) {
+                    var str = " (" + statusText + ")";
+                    previewText.remove(root._liveStartPos, root._liveStartPos + root._liveLength);
+                    previewText.insert(root._liveStartPos, str);
+                    root._liveLength = str.length;
                     cursorTimer.start();
                 }
             } else if (data.event === "voice_recognition_result") {
@@ -346,6 +377,7 @@ Rectangle {
 
                     Rectangle {
                         id: voiceButton
+                        visible: root.isVoiceInputEnabled
                         width: units.gu(3)
                         height: units.gu(3)
                         radius: units.gu(.5)
@@ -387,8 +419,8 @@ Rectangle {
                                 
                                 // Initialize the live insertion point at the very end
                                 root._liveStartPos = previewText.length;
-                                root._liveLength = " (Listening...)".length;
-                                previewText.insert(root._liveStartPos, " (Listening...)");
+                                root._liveLength = " (Starting...)".length;
+                                previewText.insert(root._liveStartPos, " (Starting...)");
                                 
                                 cursorTimer.start()
                                 root.listening = true

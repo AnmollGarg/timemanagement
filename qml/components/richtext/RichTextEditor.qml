@@ -20,6 +20,7 @@ import QtQuick.Window 2.2
 import Lomiri.Components 1.3
 import QtWebEngine 1.5
 import QtQuick.LocalStorage 2.7 as Sql
+import "../system"
 import "js/html-sanitizer.js" as HtmlSanitizer
 
 Item {
@@ -76,6 +77,7 @@ Item {
     
     /** Partial voice recognition text (for UI feedback) */
     property string _partialVoiceText: ""
+    property string _currentVoiceStatus: ""
     
     /** Whether voice input is enabled globally */
     property bool isVoiceInputEnabled: true
@@ -109,16 +111,8 @@ Item {
                 
                 var partialText = data.payload
                 if (partialText) {
-                    var jsCode = "var spans = document.getElementsByTagName('span'); " +
-                                 "var marker = null; " +
-                                 "for(var i=spans.length-1; i>=0; i--) { if (spans[i].innerText && spans[i].innerText.indexOf('\\u200B') !== -1) { marker = spans[i]; break; } } " +
-                                 "if (marker) { " +
-                                 "  marker.innerText = '\\u200B ' + " + JSON.stringify(partialText + " (Listening...)") + "; " +
-                                 "  window.editor.moveCursorToEnd(); " +
-                                 "}";
-                    wv.runJavaScript(jsCode, function(res) {
-                        editor.syncContent();
-                    });
+                    editor._partialVoiceText = partialText;
+                    editor._currentVoiceStatus = "Listening...";
                 }
             } else if (data.event === "voice_recognition_result") {
                 editor.listening = false
@@ -126,15 +120,13 @@ Item {
                 var recognizedText = data.payload
                 console.log("[RichTextEditor] Received recognition result: " + recognizedText)
                 
-                // Replace the partial span with the final text
-                var jsCode = "var spans = document.getElementsByTagName('span'); " +
-                             "var marker = null; " +
-                             "for(var i=spans.length-1; i>=0; i--) { if (spans[i].innerText && spans[i].innerText.indexOf('\\u200B') !== -1) { marker = spans[i]; break; } } " +
-                             "if (marker) { " +
-                             "  marker.outerHTML = " + JSON.stringify(recognizedText ? (recognizedText + " ") : "") + "; " +
-                             "} else if (" + JSON.stringify(recognizedText) + ") { " +
-                             "  window.editor.focus(); window.editor.insertHTML(" + JSON.stringify(recognizedText + " ") + "); " +
-                             "}";
+                editor._partialVoiceText = "";
+                editor._currentVoiceStatus = "";
+                
+                var jsCode = "if (" + JSON.stringify(recognizedText) + ") { " +
+                             "  window.editor.focus(); window.editor.moveCursorToEnd(); window.editor.insertHTML(" + JSON.stringify(recognizedText + " ") + "); " +
+                             "}" +
+                             "document.body.contentEditable = " + (!readOnly).toString() + ";";
                 wv.runJavaScript(jsCode);
                 
                 // Force a sync to update the 'text' property and emit contentChanged
@@ -143,30 +135,16 @@ Item {
                 if (!listening && !processing) return;
                 var statusText = data.payload;
                 if (statusText) {
-                    var jsCode = "var spans = document.getElementsByTagName('span'); " +
-                                 "var marker = null; " +
-                                 "for(var i=spans.length-1; i>=0; i--) { if (spans[i].innerText && spans[i].innerText.indexOf('\\u200B') !== -1) { marker = spans[i]; break; } } " +
-                                 "if (marker) { " +
-                                 "  marker.innerText = '\\u200B (' + " + JSON.stringify(statusText) + " + ')'; " +
-                                 "  window.editor.moveCursorToEnd(); " +
-                                 "}";
-                    wv.runJavaScript(jsCode, function(res) {
-                        editor.syncContent();
-                    });
+                    editor._currentVoiceStatus = statusText;
                 }
             } else if (data.event === "voice_recognition_error") {
                 editor.listening = false
                 editor.processing = false
+                editor._partialVoiceText = "";
+                editor._currentVoiceStatus = "";
                 console.log("[RichTextEditor] Voice recognition error: " + data.payload)
                 
-                // Remove the partial span on error
-                var jsCode = "var spans = document.getElementsByTagName('span'); " +
-                             "var marker = null; " +
-                             "for(var i=spans.length-1; i>=0; i--) { if (spans[i].innerText && spans[i].innerText.indexOf('\\u200B') !== -1) { marker = spans[i]; break; } } " +
-                             "if (marker) { " +
-                             "  marker.remove(); " +
-                             "}";
-                wv.runJavaScript(jsCode);
+                wv.runJavaScript("document.body.contentEditable = " + (!readOnly).toString() + ";");
             }
         }
     }
@@ -177,6 +155,7 @@ Item {
             console.log("[RichTextEditor] Stopping voice recognition...")
             listening = false
             processing = true
+            editor._currentVoiceStatus = "Processing..."
             mainView.backend_bridge.call("backend.stop_voice_recognition", [])
         } else {
             if (processing) return;
@@ -184,27 +163,9 @@ Item {
             listening = true
             processing = false
             _partialVoiceText = ""
+            editor._currentVoiceStatus = "Starting..."
             
-            // Move cursor to the end and insert a new line if there's already text,
-            // then insert a temporary span for live partial text
-            var jsCode = "try { " +
-                         "  window.editor.focus(); " +
-                         "  window.editor.moveCursorToEnd(); " +
-                         
-                         "  var currentHTML = window.editor.getHTML(); " +
-                         "  var hasContent = currentHTML.replace(/<[^>]*>/g, '').trim().length > 0; " +
-                         "  var marker = '<span style=\"color: #888888; font-style: italic;\">\\u200B (Starting...)</span>'; " +
-                         
-                         "  if (hasContent) { " +
-                         "    window.editor.insertHTML('<div><br></div>' + marker); " +
-                         "  } else { " +
-                         "    window.editor.insertHTML(marker); " +
-                         "  } " +
-                         "  window.editor.moveCursorToEnd(); " +
-                         "} catch(e) { console.error('Error inserting voice marker: ', e); }";
-            wv.runJavaScript(jsCode, function(res) {
-                editor.syncContent();
-            });
+            wv.runJavaScript("document.body.contentEditable = false;");
             
             mainView.backend_bridge.call("backend.run_voice_recognition", [])
         }
@@ -782,6 +743,24 @@ Item {
                     wv.reload();
                 }
             }
+        }
+    }
+
+    VoiceTimerWidget {
+        id: voiceTimerWidget
+        parent: mainView
+        anchors.bottomMargin: editor._oskHeight + units.gu(1)
+        
+        isListening: editor.listening
+        isProcessing: editor.processing
+        partialText: editor._partialVoiceText
+        voiceStatus: editor._currentVoiceStatus
+        
+        onStopClicked: {
+            editor.listening = false
+            editor.processing = true
+            editor._currentVoiceStatus = "Processing...";
+            mainView.backend_bridge.call("backend.stop_voice_recognition", [])
         }
     }
 }

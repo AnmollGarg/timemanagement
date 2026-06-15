@@ -38,7 +38,7 @@ def recognize_from_mic(verbose=True, stop_event=None, timeout=30, partial_callba
             return None, f"Vosk model not found at {model_path}"
 
         if status_callback:
-            status_callback("Preparing...")
+            status_callback("Preparing...~$")
 
         # Load the model and initialize recognizer
         if verbose: logger.info(f"Loading Vosk model from {model_path} for live processing...")
@@ -47,7 +47,7 @@ def recognize_from_mic(verbose=True, stop_event=None, timeout=30, partial_callba
         rec.SetWords(True)
 
         if status_callback:
-            status_callback("Listening...")
+            status_callback("Listening...~$")
 
         try:
             arecord_cmd = "arecord"

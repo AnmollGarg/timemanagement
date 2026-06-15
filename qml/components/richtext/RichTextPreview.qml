@@ -3,6 +3,7 @@ import Lomiri.Components 1.3
 import QtQuick.LocalStorage 2.7 as Sql
 import "js/html-sanitizer.js" as HtmlSanitizer
 import "../../../models/global.js" as Global
+import "../system"
 
 Rectangle {
     id: root
@@ -45,8 +46,8 @@ Rectangle {
     Component.onCompleted: {
         checkVoiceInputEnabled()
     }
-    property int _liveStartPos: 0
-    property int _liveLength: 0
+    property string _partialRecognizedText: ""
+    property string _currentVoiceStatus: ""
 
     Connections {
         target: mainView.backend_bridge
@@ -58,21 +59,13 @@ Rectangle {
             if (data.event === "voice_recognition_partial") {
                 var partialText = data.payload
                 if (partialText) {
-                    var str = " " + partialText + " (Listening...)";
-                    previewText.remove(root._liveStartPos, root._liveStartPos + root._liveLength);
-                    previewText.insert(root._liveStartPos, str);
-                    root._liveLength = str.length;
-                    
-                    cursorTimer.start();
+                    root._partialRecognizedText = partialText;
+                    root._currentVoiceStatus = i18n.dtr("ubtms", "Listening...");
                 }
             } else if (data.event === "voice_recognition_status") {
                 var statusText = data.payload;
                 if (statusText) {
-                    var str = " (" + statusText + ")";
-                    previewText.remove(root._liveStartPos, root._liveStartPos + root._liveLength);
-                    previewText.insert(root._liveStartPos, str);
-                    root._liveLength = str.length;
-                    cursorTimer.start();
+                    root._currentVoiceStatus = statusText;
                 }
             } else if (data.event === "voice_recognition_result") {
                 root.listening = false
@@ -80,24 +73,30 @@ Rectangle {
                 var recognizedText = data.payload
                 console.log("[RichTextPreview] Received recognition result: " + recognizedText)
                 
+                root._partialRecognizedText = "";
+                root._currentVoiceStatus = "";
+                
                 if (recognizedText) {
-                    var finalStr = " " + recognizedText;
-                    previewText.remove(root._liveStartPos, root._liveStartPos + root._liveLength);
-                    previewText.insert(root._liveStartPos, finalStr);
-                    root._liveLength = 0;
+                    var prefix = "";
+                    if (previewText.length > 0) {
+                        var lastChar = previewText.text.charAt(previewText.length - 1);
+                        if (lastChar !== ' ' && lastChar !== '\n' && lastChar !== '\r' && lastChar !== '\t') {
+                            prefix = " ";
+                        }
+                    }
+                    var finalStr = prefix + recognizedText;
+                    previewText.insert(previewText.length, finalStr);
                     
                     root.contentChanged(previewText.text);
                     cursorTimer.start();
                 } else {
-                    // Restore if no text
-                    previewText.remove(root._liveStartPos, root._liveStartPos + root._liveLength);
-                    root._liveLength = 0;
                     cursorTimer.start();
                 }
             } else if (data.event === "voice_recognition_error") {
                 root.listening = false
                 root.processing = false
-                root.text = root.textBeforeRecording
+                root._partialRecognizedText = "";
+                root._currentVoiceStatus = "";
                 console.log("[RichTextPreview] Voice recognition error: " + data.payload)
                 cursorTimer.start()
             }
@@ -318,7 +317,7 @@ Rectangle {
                 id: previewText
                 textFormat: useRichText ? Text.RichText : Text.PlainText
 
-                readOnly: is_read_only
+                readOnly: is_read_only || root.listening || root.processing
                 color: theme.name === "Ubuntu.Components.Themes.SuruDark" ? "white" : "black"
                 wrapMode: Text.WordWrap
                 font.pixelSize: units.gu(2)
@@ -403,11 +402,7 @@ Rectangle {
                                     console.log("[RichTextPreview] Stopping voice recognition...")
                                     root.listening = false
                                     root.processing = true
-                                    
-                                    // Replace the Listening indicator with Processing via direct node manipulation
-                                    previewText.remove(root._liveStartPos, root._liveStartPos + root._liveLength);
-                                    previewText.insert(root._liveStartPos, " (Processing...)");
-                                    root._liveLength = " (Processing...)".length;
+                                    root._currentVoiceStatus = i18n.dtr("ubtms", "Processing...");
                                     
                                     backend_bridge.call("backend.stop_voice_recognition", [])
                                     return;
@@ -417,12 +412,9 @@ Rectangle {
                                 console.log("[RichTextPreview] Voice recognition started")
                                 root.textBeforeRecording = root.text
                                 
-                                // Initialize the live insertion point at the very end
-                                root._liveStartPos = previewText.length;
-                                root._liveLength = " (Starting...)".length;
-                                previewText.insert(root._liveStartPos, " (Starting...)");
+                                root._partialRecognizedText = "";
+                                root._currentVoiceStatus = i18n.dtr("ubtms", "Starting...");
                                 
-                                cursorTimer.start()
                                 root.listening = true
                                 root.processing = false
                                 backend_bridge.call("backend.run_voice_recognition", [])
@@ -455,6 +447,23 @@ Rectangle {
                 }
                 //  padding: units.gu(2)
             }
+        }
+    }
+
+    VoiceTimerWidget {
+        id: voiceTimerWidget
+        parent: mainView
+        
+        isListening: root.listening
+        isProcessing: root.processing
+        partialText: root._partialRecognizedText
+        voiceStatus: root._currentVoiceStatus
+        
+        onStopClicked: {
+            root.listening = false
+            root.processing = true
+            root._currentVoiceStatus = i18n.dtr("ubtms", "Processing...");
+            backend_bridge.call("backend.stop_voice_recognition", [])
         }
     }
 }

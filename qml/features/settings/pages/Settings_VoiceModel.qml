@@ -344,21 +344,89 @@ Page {
             id: infoDialog
             title: i18n.dtr("ubtms", "About Voice Models")
             
-            Column {
-                spacing: units.gu(2)
+            Flickable {
                 width: parent.width
-                
-                Text {
-                    text: i18n.dtr("ubtms", "Voice models allow you to dictate text using your microphone directly into the app. Because processing happens locally on your device, your voice data remains completely private and no internet connection is required after the initial model download.\n\nLarger models provide higher accuracy but require more device memory and space. Smaller models are faster and use fewer resources but may be less accurate.")
+                height: Math.min(units.gu(50), infoContentColumn.height)
+                contentHeight: infoContentColumn.height
+                clip: true
+                interactive: contentHeight > height
+
+                Column {
+                    id: infoContentColumn
                     width: parent.width
-                    wrapMode: Text.WordWrap
-                    color: theme.palette.normal.backgroundText
-                }
-                
-                Button {
-                    text: i18n.dtr("ubtms", "Close")
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    onClicked: PopupUtils.close(infoDialog)
+                    spacing: units.gu(2)
+                    
+                    Text {
+                        text: i18n.dtr("ubtms", "Voice models allow you to dictate text using your microphone directly into the app. Because processing happens locally on your device, your voice data remains completely private and no internet connection is required after the initial model download.\n\nLarger models provide higher accuracy but require more device memory and space. Smaller models are faster and use fewer resources but may be less accurate.")
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                    }
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                        font.pixelSize: units.gu(1.6)
+                        lineHeight: 1.2
+                        text: i18n.dtr("ubtms", "<b>Voice Feature Stages:</b> When you click the voice icon, it will show <b>Starting</b>, then <b>Preparing</b>. Only start speaking once it shows <b>Listening</b>. When stopped, it will show <b>Processing</b> with a yellow bar.")
+                    }
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                        font.pixelSize: units.gu(1.6)
+                        lineHeight: 1.2
+                        text: i18n.dtr("ubtms", "<b>Auto-Stop & Limits:</b> If you do not speak for 7 seconds, the voice icon will automatically stop. The maximum duration for a single recording is 5 minutes.")
+                    }
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                        font.pixelSize: units.gu(1.6)
+                        lineHeight: 1.2
+                        text: i18n.dtr("ubtms", "<b>Getting Started:</b> Make sure you have enabled the \"Enable voice input\" feature, under voice model (Beta) settings. ")
+                    }
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                        font.pixelSize: units.gu(1.6)
+                        lineHeight: 1.2
+                        text: i18n.dtr("ubtms", "<b>Compatibility & Errors:</b> A red warning icon indicates the model is incompatible with your device (usually due to RAM limits), but you can still attempt to download it.")
+                    }
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                        font.pixelSize: units.gu(1.6)
+                        lineHeight: 1.2
+                        text: i18n.dtr("ubtms", "<b>Managing Downloads:</b>Check the internet connectivity before downloading a file. Once the voice model is downloaded, select the model you want from the installed models list. The selected model will be shown in bold text, with a tick mark to its right. During download, you will see <b>Loading</b> (downloading), <b>Pause</b>, and <b>Cancel</b> buttons. Pausing or losing internet will preserve your progress, allowing you to resume later from this page. Cancelling will delete the partial download.")
+                    }
+
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        color: theme.palette.normal.backgroundText
+                        font.pixelSize: units.gu(1.6)
+                        lineHeight: 1.2
+                        text: i18n.dtr("ubtms", "<b>Deleting Models:</b> To remove an installed model, swipe its name to the left and click the delete icon.")
+                    }
+                    
+                    Button {
+                        text: i18n.dtr("ubtms", "Close")
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        onClicked: PopupUtils.close(infoDialog)
+                    }
+
+                    Item {
+                        width: parent.width
+                        height: units.gu(2)
+                    }
                 }
             }
         }
@@ -500,7 +568,7 @@ Page {
                         if (status.error) {
                             console.error("Download error:", status.error);
                             if (mainView.modelDownloadTimerWidget) mainView.modelDownloadTimerWidget.failSync(status.error);
-                            notifPopup.open(i18n.dtr("ubtms", "Download Interrupted"), i18n.dtr("ubtms", "Failed to download %1: %2. You can resume it.").arg(downloadingModelName).arg(status.error), "warning");
+                            notifPopup.open(i18n.dtr("ubtms", "Download Interrupted"), i18n.dtr("ubtms", "Failed to download. You can resume it.").arg(downloadingModelName).arg(status.error), "warning");
                         } else {
                             notifPopup.open(i18n.dtr("ubtms", "Download Paused"), i18n.dtr("ubtms", "Download of %1 is paused.").arg(downloadingModelName), "info");
                         }

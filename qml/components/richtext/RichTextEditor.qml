@@ -149,6 +149,13 @@ Item {
         }
     }
 
+    Component.onDestruction: {
+        if (listening || processing) {
+            console.log("[RichTextEditor] destruction: Stopping voice recognition...")
+            mainView.backend_bridge.call("backend.stop_voice_recognition", [])
+        }
+    }
+
     /** Toggle voice recognition state */
     function toggleVoiceRecognition() {
         if (listening) {

@@ -378,6 +378,11 @@ Page {
                 }
             }
         }
+        
+        if (!visible && (listening || processing)) {
+            console.log("[ReadMorePage] visibility changed: Stopping voice recognition...")
+            mainView.backend_bridge.call("backend.stop_voice_recognition", [])
+        }
     }
 
     Component.onCompleted: {
@@ -410,6 +415,11 @@ Page {
                 parentDraftHandler.markFieldChanged("description", Global.description_temporary_holder);
                 parentDraftHandler.saveDraft();
             }
+        }
+        
+        if (listening || processing) {
+            console.log("[ReadMorePage] destruction: Stopping voice recognition...")
+            mainView.backend_bridge.call("backend.stop_voice_recognition", [])
         }
     }
 }

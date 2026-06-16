@@ -27,6 +27,7 @@ Page {
 
     property bool listening: false
     property bool processing: false
+    property bool ignoreNextResult: false
     property string textBeforeRecording: ""
     property bool isVoiceInputEnabled: true
     property string _partialRecognizedText: ""
@@ -56,8 +57,17 @@ Page {
             if (data.event === "voice_recognition_partial") {
                 var partialText = data.payload
                 if (partialText) {
-                    readmepage._partialRecognizedText = partialText;
                     readmepage._currentVoiceStatus = i18n.dtr("ubtms", "Listening...");
+                    
+                    var prefix = "";
+                    if (readmepage.textBeforeRecording.length > 0) {
+                        var lastChar = readmepage.textBeforeRecording.charAt(readmepage.textBeforeRecording.length - 1);
+                        if (lastChar !== '\n' && lastChar !== '\r') {
+                            prefix = "\n";
+                        }
+                    }
+                    simpleEditor.text = readmepage.textBeforeRecording + prefix + partialText;
+                    cursorTimer.start();
                 }
             } else if (data.event === "voice_recognition_status") {
                 var statusText = data.payload;
@@ -65,30 +75,38 @@ Page {
                     readmepage._currentVoiceStatus = statusText;
                 }
             } else if (data.event === "voice_recognition_result") {
+                if (readmepage.ignoreNextResult) {
+                    readmepage.ignoreNextResult = false;
+                    readmepage.listening = false;
+                    readmepage.processing = false;
+                    readmepage._currentVoiceStatus = "";
+                    readmepage.textBeforeRecording = simpleEditor.text;
+                    cursorTimer.start();
+                    return;
+                }
+                
                 readmepage.listening = false
                 readmepage.processing = false
                 var recognizedText = data.payload
-                readmepage._partialRecognizedText = "";
                 readmepage._currentVoiceStatus = "";
                 
                 if (recognizedText) {
                     var prefix = "";
-                    if (simpleEditor.length > 0) {
-                        var lastChar = simpleEditor.text.charAt(simpleEditor.length - 1);
-                        if (lastChar !== ' ' && lastChar !== '\n' && lastChar !== '\r' && lastChar !== '\t') {
-                            prefix = " ";
+                    if (readmepage.textBeforeRecording.length > 0) {
+                        var lastChar = readmepage.textBeforeRecording.charAt(readmepage.textBeforeRecording.length - 1);
+                        if (lastChar !== '\n' && lastChar !== '\r') {
+                            prefix = "\n";
                         }
                     }
-                    var finalStr = prefix + recognizedText;
-                    simpleEditor.insert(simpleEditor.length, finalStr);
-                    
+                    simpleEditor.text = readmepage.textBeforeRecording + prefix + recognizedText;
+                    readmepage.textBeforeRecording = simpleEditor.text;
                     cursorTimer.start();
                 }
             } else if (data.event === "voice_recognition_error") {
                 readmepage.listening = false
                 readmepage.processing = false
-                readmepage._partialRecognizedText = "";
                 readmepage._currentVoiceStatus = "";
+                readmepage.textBeforeRecording = simpleEditor.text;
                 cursorTimer.start()
             }
         }
@@ -125,7 +143,7 @@ Page {
         trailingActionBar.numberOfSlots: 3
         trailingActionBar.actions: [
             Action {
-                visible: !isReadOnly && (!readmepage.listening && !readmepage.processing)
+                visible: !isReadOnly
                 iconName: "tick"
                 onTriggered: {
                     saveAndClose()
@@ -221,13 +239,28 @@ Page {
     }
 
     function saveAndClose() {
+        // Auto-stop voice recognition if it's still running
+        if (readmepage.listening || readmepage.processing) {
+            readmepage.ignoreNextResult = true;
+            readmepage.listening = false;
+            readmepage.processing = false;
+            readmepage._currentVoiceStatus = "";
+            backend_bridge.call("backend.stop_voice_recognition", []);
+        }
+        
         if (useRichText) {
+            // Finalize voice span in RichTextEditor if needed
+            if (editor.editor && editor.editor.listening || editor.editor && editor.editor.processing) {
+                editor.editor.stopAndFinalizeVoice();
+            }
             editor.getText(function (content) {
                 if (commitContent(content)) {
                     closePage();
                 }
             });
         } else {
+            // For plain text, textBeforeRecording is already updated
+            readmepage.textBeforeRecording = simpleEditor.text;
             if (commitContent(simpleEditor.text)) {
                 closePage();
             }
@@ -340,13 +373,17 @@ Page {
         
         isListening: readmepage.listening
         isProcessing: readmepage.processing
-        partialText: readmepage._partialRecognizedText
+        partialText: "" // Don't show partial text in the widget anymore
         voiceStatus: readmepage._currentVoiceStatus
         
         onStopClicked: {
+            readmepage.ignoreNextResult = true;
             readmepage.listening = false
-            readmepage.processing = true
-            readmepage._currentVoiceStatus = i18n.dtr("ubtms", "Processing...");
+            readmepage.processing = false
+            readmepage.textBeforeRecording = simpleEditor.text;
+            
+            readmepage._currentVoiceStatus = "";
+            
             backend_bridge.call("backend.stop_voice_recognition", [])
         }
     }

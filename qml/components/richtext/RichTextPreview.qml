@@ -24,15 +24,33 @@ Rectangle {
     property bool liveSyncActive: false
     property bool listening: false
     property bool processing: false
+    property bool ignoreNextResult: false
     
     Component.onDestruction: {
         if (listening || processing) {
             console.log("[RichTextPreview] destruction: Stopping voice recognition...")
+            ignoreNextResult = true;
+            listening = false;
+            processing = false;
+            _currentVoiceStatus = "";
+            textBeforeRecording = root.text;
+            _syncVoiceResult();
             backend_bridge.call("backend.stop_voice_recognition", [])
         }
     }
     property string textBeforeRecording: ""
     property bool isVoiceInputEnabled: true
+
+    // This is used to sync the voice input with the parent form's draft handler
+    function _syncVoiceResult() {
+        var currentContent = root.text;
+        originalHtmlContent = currentContent;
+        root.contentChanged(currentContent);
+        if (root.liveSyncActive) {
+            Global.description_temporary_holder = currentContent;
+            root._lastSyncedContent = currentContent;
+        }
+    }
 
     function checkVoiceInputEnabled() {
         try {
@@ -66,8 +84,29 @@ Rectangle {
             if (data.event === "voice_recognition_partial") {
                 var partialText = data.payload
                 if (partialText) {
-                    root._partialRecognizedText = partialText;
                     root._currentVoiceStatus = i18n.dtr("ubtms", "Listening...");
+                    
+                    var prefix = "";
+                    if (root.textBeforeRecording.length > 0) {
+                        var lastChar = root.textBeforeRecording.charAt(root.textBeforeRecording.length - 1);
+                        if (lastChar !== '\n' && lastChar !== '\r') {
+                            prefix = "\n";
+                        }
+                    }
+                    root._settingContent = true;
+                    root.text = root.textBeforeRecording + prefix + partialText;
+                    // Force update originalHtmlContent so draft listeners get the live text
+                    // without waiting for the mic to stop.
+                    root.originalHtmlContent = root.text;
+                    root._settingContent = false;
+                    
+                    // Keep cursor at end and scroll to bottom immediately
+                    previewText.cursorPosition = previewText.length;
+                    if (previewText.flickableItem) {
+                        previewText.flickableItem.contentY = Math.max(0, previewText.flickableItem.contentHeight - previewText.flickableItem.height);
+                    } else if (previewText.flickable) {
+                        previewText.flickable.contentY = Math.max(0, previewText.flickable.contentHeight - previewText.flickable.height);
+                    }
                 }
             } else if (data.event === "voice_recognition_status") {
                 var statusText = data.payload;
@@ -75,35 +114,49 @@ Rectangle {
                     root._currentVoiceStatus = statusText;
                 }
             } else if (data.event === "voice_recognition_result") {
+                if (root.ignoreNextResult) {
+                    root.ignoreNextResult = false;
+                    root.listening = false;
+                    root.processing = false;
+                    root._currentVoiceStatus = "";
+                    root.textBeforeRecording = root.text;
+                    root._syncVoiceResult();
+                    cursorTimer.start();
+                    return;
+                }
+                
                 root.listening = false
                 root.processing = false
                 var recognizedText = data.payload
                 console.log("[RichTextPreview] Received recognition result: " + recognizedText)
                 
-                root._partialRecognizedText = "";
                 root._currentVoiceStatus = "";
                 
                 if (recognizedText) {
                     var prefix = "";
-                    if (previewText.length > 0) {
-                        var lastChar = previewText.text.charAt(previewText.length - 1);
-                        if (lastChar !== ' ' && lastChar !== '\n' && lastChar !== '\r' && lastChar !== '\t') {
-                            prefix = " ";
+                    if (root.textBeforeRecording.length > 0) {
+                        var lastChar = root.textBeforeRecording.charAt(root.textBeforeRecording.length - 1);
+                        if (lastChar !== '\n' && lastChar !== '\r') {
+                            prefix = "\n";
                         }
                     }
-                    var finalStr = prefix + recognizedText;
-                    previewText.insert(previewText.length, finalStr);
-                    
-                    root.contentChanged(previewText.text);
+                    root._settingContent = true;
+                    root.text = root.textBeforeRecording + prefix + recognizedText;
+                    root._settingContent = false;
+                    root.textBeforeRecording = root.text;
+                    root._syncVoiceResult();
                     cursorTimer.start();
                 } else {
+                    root.textBeforeRecording = root.text;
+                    root._syncVoiceResult();
                     cursorTimer.start();
                 }
             } else if (data.event === "voice_recognition_error") {
                 root.listening = false
                 root.processing = false
-                root._partialRecognizedText = "";
                 root._currentVoiceStatus = "";
+                root.textBeforeRecording = root.text;
+                root._syncVoiceResult();
                 console.log("[RichTextPreview] Voice recognition error: " + data.payload)
                 cursorTimer.start()
             }
@@ -285,11 +338,24 @@ Rectangle {
         repeat: false
         onTriggered: {
             if (previewText) {
-                // Ensure the TextArea is focused so it respects scroll-to-cursor
-                // and use .length (visible characters) instead of .text.length (HTML source length)
                 previewText.cursorPosition = previewText.length;
                 
-                // Force scroll to bottom if internal flickable exists
+                if (previewText.flickableItem) {
+                    previewText.flickableItem.contentY = Math.max(0, previewText.flickableItem.contentHeight - previewText.flickableItem.height);
+                } else if (previewText.flickable) {
+                    previewText.flickable.contentY = Math.max(0, previewText.flickable.contentHeight - previewText.flickable.height);
+                }
+            }
+        }
+    }
+
+    // Separate timer for scrolling during voice input - only scrolls, doesn't move cursor
+    Timer {
+        id: scrollToBottomTimer
+        interval: 50
+        repeat: false
+        onTriggered: {
+            if (previewText) {
                 if (previewText.flickableItem) {
                     previewText.flickableItem.contentY = Math.max(0, previewText.flickableItem.contentHeight - previewText.flickableItem.height);
                 } else if (previewText.flickable) {
@@ -434,7 +500,8 @@ Rectangle {
                         width: units.gu(3)
                         height: units.gu(3)
                         radius: units.gu(.5)
-                        color: LomiriColors.orange
+                        color: (root.listening || root.processing) ? LomiriColors.ash : LomiriColors.orange
+                        opacity: (root.listening || root.processing) ? 0.5 : 1.0
                         
                         Image {
                             id: expansionIcon
@@ -448,7 +515,11 @@ Rectangle {
                         MouseArea {
                             anchors.fill: parent
                             // cursorShape: Qt.PointingHandCursor
-                            onClicked: root.clicked()
+                            onClicked: {
+                                if (!root.listening && !root.processing) {
+                                    root.clicked()
+                                }
+                            }
                         }
                     }
                 }
@@ -463,13 +534,15 @@ Rectangle {
         
         isListening: root.listening
         isProcessing: root.processing
-        partialText: root._partialRecognizedText
+        partialText: "" // Don't show partial text in the widget anymore
         voiceStatus: root._currentVoiceStatus
         
         onStopClicked: {
+            console.log("[RichTextPreview] Stopping voice recognition from widget...")
             root.listening = false
             root.processing = true
             root._currentVoiceStatus = i18n.dtr("ubtms", "Processing...");
+            
             backend_bridge.call("backend.stop_voice_recognition", [])
         }
     }

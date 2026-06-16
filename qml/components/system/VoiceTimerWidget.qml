@@ -80,10 +80,10 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         anchors.right: parent.right
         anchors.margins: units.gu(1)
-        width: units.gu(5)
-        height: units.gu(5)
+        width: units.gu(4)
+        height: units.gu(4)
         // Image path assumes we are in components/system/
-        source: "../../../images/stop.png"
+        source: "../../images/stop.png"
         fillMode: Image.PreserveAspectFit
         visible: voiceTimerWidget.isListening
 

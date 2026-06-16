@@ -405,7 +405,7 @@ Page {
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
-                        text: i18n.dtr("ubtms", "<b>Managing Downloads:</b>Check the internet connectivity before downloading a file. Once the voice model is downloaded, select the model you want from the installed models list. The selected model will be shown in bold text, with a tick mark to its right. During download, you will see <b>Loading</b> (downloading), <b>Pause</b>, and <b>Cancel</b> buttons. Pausing or losing internet will preserve your progress, allowing you to resume later from this page. Cancelling will delete the partial download.")
+                        text: i18n.dtr("ubtms", "<b>Managing Downloads:</b>Check the internet connectivity before downloading a file. Once the voice model is downloaded, select the model you want from the installed models list. Even if only one model is installed, selecting the model is mandatory. The selected model will be shown in bold text, with a tick mark to its right. During download, you will see <b>Loading</b> (downloading), <b>Pause</b>, and <b>Cancel</b> buttons. Pausing or losing internet will preserve your progress, allowing you to resume later from this page. Cancelling will delete the partial download.")
                     }
 
                     Text {

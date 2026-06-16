@@ -24,6 +24,13 @@ Rectangle {
     property bool liveSyncActive: false
     property bool listening: false
     property bool processing: false
+    
+    Component.onDestruction: {
+        if (listening || processing) {
+            console.log("[RichTextPreview] destruction: Stopping voice recognition...")
+            backend_bridge.call("backend.stop_voice_recognition", [])
+        }
+    }
     property string textBeforeRecording: ""
     property bool isVoiceInputEnabled: true
 

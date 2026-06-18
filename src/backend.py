@@ -1056,7 +1056,7 @@ def delete_voice_model(model_path):
         return {"status": "error", "message": str(e)}
 
 
-def resolve_settings_db_path(db_name="UBTMS_SettingsDB", app_id="ubtms"):
+def resolve_settings_db_path(db_name="myDatabase", app_id="ubtms"):
     """Finds a specific QML database by its name (hash)."""
     import hashlib
     db_hash = hashlib.md5(db_name.encode()).hexdigest()
@@ -1113,7 +1113,7 @@ def run_voice_recognition():
             
             # Fetch the active model path from settings
             # First try the specific settings DB
-            db_path = resolve_settings_db_path("UBTMS_SettingsDB")
+            db_path = resolve_settings_db_path("myDatabase")
             if not db_path:
                 # Fallback to main app DB
                 db_path = resolve_qml_db_path()
@@ -1169,14 +1169,25 @@ def run_voice_recognition():
             
             # Run recognition in a separate process to avoid GIL blocking and UI freezing
             parent_conn, child_conn = multiprocessing.Pipe()
-            p = multiprocessing.Process(target=_subprocess_recognize, args=(str(model_path), child_conn, 30))
+            ctx = multiprocessing.get_context("spawn")
+            p = ctx.Process(target=_subprocess_recognize, args=(str(model_path), child_conn, 30))
             p.start()
             
+            import time
             received_final = False
+            stop_sent_time = None
             while p.is_alive():
                 if _voice_stop_event.is_set():
                     parent_conn.send("stop")
                     _voice_stop_event.clear()
+                    if stop_sent_time is None:
+                        stop_sent_time = time.time()
+                
+                # Watchdog: terminate if process ignores stop signal for > 5 seconds
+                if stop_sent_time is not None and (time.time() - stop_sent_time > 5.0):
+                    log.warning("[VOICE] Watchdog triggered: Process failed to stop cleanly. Terminating.")
+                    p.terminate()
+                    break
                     
                 if parent_conn.poll(0.5):
                     msg = parent_conn.recv()

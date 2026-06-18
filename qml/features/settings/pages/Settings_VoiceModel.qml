@@ -84,9 +84,10 @@ Page {
 
     function getVoiceInputEnabledSetting() {
         try {
-            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var db = Sql.LocalStorage.openDatabaseSync("myDatabase", "1.0", "My Database", 1000000);
             var result = true;
             db.transaction(function (tx) {
+                tx.executeSql('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
                 var rs = tx.executeSql('SELECT value FROM app_settings WHERE key = "voice_input_enabled"');
                 if (rs.rows.length > 0) {
                     result = rs.rows.item(0).value === "true";
@@ -101,7 +102,7 @@ Page {
 
     function saveVoiceInputEnabledSetting(value) {
         try {
-            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var db = Sql.LocalStorage.openDatabaseSync("myDatabase", "1.0", "My Database", 1000000);
             db.transaction(function (tx) {
                 tx.executeSql('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
                 tx.executeSql('INSERT OR REPLACE INTO app_settings (key, value) VALUES ("voice_input_enabled", ?)', [value ? "true" : "false"]);
@@ -114,9 +115,10 @@ Page {
 
     function isModelCompatible(sizeStr) {
         if (!sizeStr) return true;
-        var isG = sizeStr.indexOf("G") !== -1;
+        var upperSize = sizeStr.toUpperCase();
+        var isG = upperSize.indexOf("G") !== -1;
         if (isG) {
-            var val = parseFloat(sizeStr.replace("G", ""));
+            var val = parseFloat(upperSize.replace("G", ""));
             // Assume 1G requires ~2500MB RAM, 1.8G requires ~4000MB RAM.
             var reqRam = val * 2500; 
             return deviceRamMB >= reqRam;
@@ -126,10 +128,11 @@ Page {
 
     function getActiveModelSetting() {
         try {
-            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var db = Sql.LocalStorage.openDatabaseSync("myDatabase", "1.0", "My Database", 1000000);
             var result = "voice_to_text/model"; // Default
 
             db.transaction(function (tx) {
+                tx.executeSql('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
                 var rs = tx.executeSql('SELECT value FROM app_settings WHERE key = "active_voice_model"');
                 if (rs.rows.length > 0) {
                     result = rs.rows.item(0).value;
@@ -144,7 +147,7 @@ Page {
 
     function saveActiveModelSetting(value) {
         try {
-            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var db = Sql.LocalStorage.openDatabaseSync("myDatabase", "1.0", "My Database", 1000000);
             db.transaction(function (tx) {
                 tx.executeSql('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
                 tx.executeSql('INSERT OR REPLACE INTO app_settings (key, value) VALUES ("active_voice_model", ?)', [value]);

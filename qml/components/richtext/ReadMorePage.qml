@@ -35,9 +35,10 @@ Page {
 
     function checkVoiceInputEnabled() {
         try {
-            var db = Sql.LocalStorage.openDatabaseSync("UBTMS_SettingsDB", "1.0", "UBTMS Settings Database", 1000000);
+            var db = Sql.LocalStorage.openDatabaseSync("myDatabase", "1.0", "My Database", 1000000);
             var result = true;
             db.transaction(function (tx) {
+                tx.executeSql('CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)');
                 var rs = tx.executeSql('SELECT value FROM app_settings WHERE key = "voice_input_enabled"');
                 if (rs.rows.length > 0) {
                     result = rs.rows.item(0).value === "true";

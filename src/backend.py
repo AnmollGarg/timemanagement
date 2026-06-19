@@ -1077,6 +1077,11 @@ def resolve_settings_db_path(db_name="myDatabase", app_id="ubtms"):
 
 def _subprocess_recognize(model_path, pipe, timeout):
     """Runs voice recognition in a separate process to avoid blocking the GIL."""
+    import signal
+    def sigterm_handler(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, sigterm_handler)
+
     try:
         from voice_to_text.voice2text import recognize_from_mic
         

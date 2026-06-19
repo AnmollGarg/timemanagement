@@ -363,12 +363,14 @@ Page {
                         text: i18n.dtr("ubtms", "Voice models allow you to dictate text using your microphone directly into the app. Because processing happens locally on your device, your voice data remains completely private and no internet connection is required after the initial model download.\n\nLarger models provide higher accuracy but require more device memory and space. Smaller models are faster and use fewer resources but may be less accurate.")
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                     }
 
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
@@ -378,6 +380,7 @@ Page {
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
@@ -387,6 +390,7 @@ Page {
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
@@ -396,6 +400,7 @@ Page {
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
@@ -405,6 +410,7 @@ Page {
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
@@ -414,6 +420,7 @@ Page {
                     Text {
                         width: parent.width
                         wrapMode: Text.WordWrap
+                        horizontalAlignment: Text.AlignJustify
                         color: theme.palette.normal.backgroundText
                         font.pixelSize: units.gu(1.6)
                         lineHeight: 1.2
@@ -552,7 +559,11 @@ Page {
         interval: 1000
         repeat: true
         onTriggered: {
+            if (!isDownloading) return;
             mainView.backend_bridge.call("backend.get_model_download_status", [], function(status) {
+                if (!isDownloading) return;
+                if (status.model_id && status.model_id !== downloadingModelId) return;
+                
                 downloadStatus = status;
                 
                 // Update global timer widget at the bottom
